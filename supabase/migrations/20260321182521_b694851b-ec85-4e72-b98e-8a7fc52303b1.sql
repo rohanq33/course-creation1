@@ -1,0 +1,1 @@
+ALTER TABLE public.courses DROP CONSTRAINT IF EXISTS courses_instructor_id_fkey;
