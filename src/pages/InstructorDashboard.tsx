@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
-import { API_BASE_URL } from '@/lib/api';
+import { Link, useNavigate } from 'react-router-dom';
+import { API_BASE_URL, backendPost } from '@/lib/api';
+import type { StoredCourse } from '@/lib/courseStorage';
 import { DEMO_USER_ID } from '@/contexts/DemoContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,64 +18,55 @@ import type { Course } from '@/types/database';
 
 export default function InstructorDashboard() {
   const userId = DEMO_USER_ID;
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newCourseTitle, setNewCourseTitle] = useState('');
   const [newCourseDescription, setNewCourseDescription] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const { data: courses, isLoading } = useQuery({
+  const { data: courses = [], isLoading, error } = useQuery<StoredCourse[]>({
     queryKey: ['instructor-courses', userId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('courses')
-        .select(`
-          *,
-          lessons:lessons(count),
-          enrollments:enrollments(count)
-        `)
-        .eq('instructor_id', userId)
-        .order('created_at', { ascending: false });
+      const response = await fetch(`${API_BASE_URL}/api/instructor/courses/${userId}`);
+      const data = await response.json();
 
-      if (error) throw error;
-      return data as (Course & { lessons: { count: number }[]; enrollments: { count: number }[] })[];
-    },
-  });
+      if (!response.ok) {
+        throw new Error(data?.error || data?.message || `${response.status} ${response.statusText}`);
+      }
 
-  const createCourseMutation = useMutation({
-    mutationFn: async ({ title, description }: { title: string; description: string }) => {
-      const { data, error } = await supabase
-        .from('courses')
-        .insert({
-          instructor_id: userId,
-          title,
-          description,
-          status: 'draft',
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['instructor-courses'] });
-      setIsCreateOpen(false);
-      setNewCourseTitle('');
-      setNewCourseDescription('');
-      toast.success('Course created! Now add lessons.');
+      console.log('Instructor courses:', data);
+      return Array.isArray(data) ? data : [];
     },
     onError: (error) => {
-      toast.error('Failed to create course');
+      console.error('InstructorDashboard load error:', error);
+      setLoadError(error?.message || String(error));
     },
   });
+
+  const courseList = Array.isArray(courses) ? courses : [];
+
+  const addCourseToList = (course: StoredCourse) => {
+    queryClient.setQueryData(['instructor-courses', userId], (oldData: any) => {
+      const existing = Array.isArray(oldData) ? oldData : [];
+      return [course, ...existing.filter((item) => item?.id !== course.id)];
+    });
+  };
 
   const deleteCourseMutation = useMutation({
     mutationFn: async (courseId: string) => {
-      const { error } = await supabase.from('courses').delete().eq('id', courseId);
-      if (error) throw error;
+      const response = await fetch(`${API_BASE_URL}/api/courses/${courseId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error || data?.message || `${response.status} ${response.statusText}`);
+      }
+      return courseId;
     },
-    onSuccess: () => {
+    onSuccess: (courseId: string) => {
       queryClient.invalidateQueries({ queryKey: ['instructor-courses'] });
       toast.success('Course deleted');
     },
@@ -87,28 +78,46 @@ export default function InstructorDashboard() {
   const togglePublishMutation = useMutation({
     mutationFn: async ({ courseId, status }: { courseId: string; status: string }) => {
       const newStatus = status === 'published' ? 'draft' : 'published';
-      const { error } = await supabase
-        .from('courses')
-        .update({ status: newStatus })
-        .eq('id', courseId);
-      if (error) throw error;
-      return newStatus;
+      const updatedCourse = await backendPost(`/api/courses/${courseId}`, {
+        published: newStatus === 'published',
+      }, 'PATCH');
+      return updatedCourse;
     },
-    onSuccess: (newStatus) => {
+    onSuccess: (updatedCourse: any) => {
       queryClient.invalidateQueries({ queryKey: ['instructor-courses'] });
-      toast.success(newStatus === 'published' ? 'Course published!' : 'Course unpublished');
+      toast.success(updatedCourse.status === 'published' ? 'Course published!' : 'Course unpublished');
     },
     onError: () => {
       toast.error('Failed to update course status');
     },
   });
 
-  const handleCreateCourse = () => {
+  const handleCreateCourse = async () => {
     if (!newCourseTitle.trim()) {
       toast.error('Please enter a course title');
       return;
     }
-    createCourseMutation.mutate({ title: newCourseTitle, description: newCourseDescription });
+
+    const payload = {
+      title: newCourseTitle.trim(),
+      description: newCourseDescription.trim() || null,
+      instructor_id: userId,
+      generatedWithAI: false,
+    };
+    console.log('Creating course:', payload);
+
+    try {
+      const course = await backendPost('/api/courses', payload, 'POST');
+      console.log('Course created:', course);
+      addCourseToList(course);
+      setIsCreateOpen(false);
+      setNewCourseTitle('');
+      setNewCourseDescription('');
+      toast.success('Course created!');
+    } catch (error: any) {
+      console.error('Course creation error:', error);
+      toast.error(error.message || 'Failed to create course. Please try again.');
+    }
   };
 
   const handleGenerateWithAI = async () => {
@@ -116,28 +125,27 @@ export default function InstructorDashboard() {
       toast.error('Please enter a course topic');
       return;
     }
-    
+
+    const payload = {
+      title: newCourseTitle.trim(),
+      description: newCourseDescription.trim() || null,
+      instructor_id: userId,
+      generatedWithAI: true,
+    };
+    console.log('Creating course:', payload);
+
     setIsGenerating(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/generate-course`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic: newCourseTitle, description: newCourseDescription }),
-      });
-
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data?.error || 'AI generation failed');
-      }
-
-      queryClient.invalidateQueries({ queryKey: ['instructor-courses'] });
+      const course = await backendPost('/api/courses', payload, 'POST');
+      console.log('Course created:', course);
+      addCourseToList(course);
       setIsCreateOpen(false);
       setNewCourseTitle('');
       setNewCourseDescription('');
-      toast.success('Course generated with AI! Output is available in the AI assistant.');
-    } catch (error) {
+      toast.success('Course generated and saved!');
+    } catch (error: any) {
       console.error('AI generation error:', error);
-      toast.error('Failed to generate course. Please try again.');
+      toast.error(error.message || 'Failed to generate course. Please try again.');
     } finally {
       setIsGenerating(false);
     }
@@ -189,7 +197,7 @@ export default function InstructorDashboard() {
                 <div className="flex gap-3">
                   <Button
                     onClick={handleGenerateWithAI}
-                    disabled={isGenerating || createCourseMutation.isPending}
+                    disabled={isGenerating}
                     className="flex-1 gradient-primary hover:opacity-90"
                   >
                     {isGenerating ? (
@@ -202,7 +210,7 @@ export default function InstructorDashboard() {
                   <Button
                     variant="outline"
                     onClick={handleCreateCourse}
-                    disabled={isGenerating || createCourseMutation.isPending}
+                    disabled={isGenerating}
                     className="flex-1"
                   >
                     Create Manually
@@ -275,7 +283,7 @@ export default function InstructorDashboard() {
               </Card>
             ))}
           </div>
-        ) : courses?.length === 0 ? (
+        ) : courseList.length === 0 ? (
           <Card className="text-center py-12">
             <CardContent>
               <div className="w-16 h-16 rounded-full bg-muted mx-auto mb-4 flex items-center justify-center">

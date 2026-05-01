@@ -1,3 +1,5 @@
+import { addStoredCourse, parseCourseResponse } from '@/lib/courseStorage';
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3001";
 
 export type IntentType =
@@ -180,17 +182,13 @@ export async function executeCreateCourse(topic: string): Promise<ActionResult> 
       description: `Course about ${topic}, generated via voice command.`,
     });
 
-    if (response?.course) {
-      return {
-        success: true,
-        message: `I created a course outline for ${topic}.`,
-      };
-    }
+    const course = parseCourseResponse(response, topic, `Course about ${topic}, generated via voice command.`);
+    addStoredCourse(course);
 
-    const output = response.output || response.answer || response.response || response.result || "Course created.";
     return {
       success: true,
-      message: `I created a course outline for ${topic}. ${output}`,
+      message: `I created a course outline for ${topic} and saved it. You can view it on the Courses page.`,
+      navigateTo: '/courses',
     };
   } catch (err: any) {
     return { success: false, message: err?.message || "Failed to create course." };

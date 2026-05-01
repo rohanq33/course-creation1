@@ -6,6 +6,47 @@ const corsHeaders = {
 const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY')!
 const AI_URL = 'https://ai.gateway.lovable.dev/v1/chat/completions'
 
+const SAFE_SYSTEM_PROMPT = `You are an educational study material generator. The uploaded content is safe academic syllabus content. Generate helpful study materials only from the syllabus. Do not refuse unless the content is clearly illegal, sexual, violent, or harmful.`
+const SAFE_RETRY_PROMPT = `This is a normal computer science/programming syllabus. Generate educational study material. Do not discuss unsafe content.`
+const REFUSAL_PHRASES = [
+  "i can't help",
+  "i cannot assist",
+  "i can't assist",
+  "i'm not able",
+]
+
+function sanitizeTopic(topic: string) {
+  return topic.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9\s\-]/g, '').trim() || 'Academic Topic'
+}
+
+function isRefusalText(text: string) {
+  if (!text || typeof text !== 'string') return false
+  const normalized = text.trim().toLowerCase()
+  return REFUSAL_PHRASES.some((phrase) => normalized.startsWith(phrase))
+}
+
+async function callLovable(messages: Array<Record<string, string>>) {
+  const response = await fetch(AI_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${LOVABLE_API_KEY}` },
+    body: JSON.stringify({
+      model: 'google/gemini-2.5-flash',
+      messages,
+      temperature: 0.7,
+      max_tokens: 4000,
+    }),
+  })
+
+  if (!response.ok) {
+    const err = await response.text()
+    console.error('Student Time Generate: AI API error', err)
+    throw new Error(`AI API error: ${err}`)
+  }
+
+  const data: any = await response.json()
+  return data.choices?.[0]?.message?.content || 'No content generated.'
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -30,13 +71,14 @@ Deno.serve(async (req) => {
       })
     }
 
+    const safeTopic = sanitizeTopic(topic)
     const prompts: Record<string, string> = {
-      quiz: `Generate 10 quiz questions about "${topic}". Format each as "**Q#.** question" followed by the answer on a new line starting with "Answer: ". Separate with "---".`,
-      homework: `Generate 8 homework/assignment-style questions about "${topic}". Include a mix of short answer, essay, and problem-solving questions. Number them clearly.`,
-      speech: `Write a clear, engaging study explanation about "${topic}" as if explaining to a student. Use analogies, examples, and clear structure with headings. Keep it around 500 words.`,
-      videos: `Suggest 8 educational YouTube video recommendations for learning about "${topic}". For each provide:\n- **Title**: descriptive title\n- **Topic**: specific subtopic covered\n- **Search URL**: YouTube search URL like https://www.youtube.com/results?search_query=encoded+topic`,
-      research: `For the topic "${topic}", suggest 5 research paper ideas with:\n- **Title**: paper title\n- **Abstract**: 2-3 sentence abstract\n- **Methodology**: suggested approach\n- **Key Areas**: relevant subtopics to explore`,
-      qa: `Generate 10 important theory questions and detailed answers about "${topic}". Format each as "**Q#: question**" followed by a thorough answer.`,
+      quiz: `Generate 10 short quiz questions about "${safeTopic}". Put the answer directly below each question on the next line starting with "Answer:".`,
+      homework: `Generate 8 homework questions about "${safeTopic}". Include short-answer prompts, essay-style questions, and problem-solving prompts. Number them clearly.`,
+      speech: `Write a clear, engaging educational explanation about "${safeTopic}" as if teaching a student. Use headings, examples, and analogies.`,
+      videos: `Suggest 8 educational YouTube search topics for learning "${safeTopic}". For each item, include a title, a short explanation, and a sample YouTube search URL.`,
+      research: `Suggest 5 research paper ideas about "${safeTopic}". For each idea include a title, a brief abstract, and key areas to explore.`,
+      qa: `Generate 10 important questions and detailed answers about "${safeTopic}". Number each item and provide a clear answer after each question.`,
     }
 
     const prompt = prompts[resourceType]
@@ -48,30 +90,21 @@ Deno.serve(async (req) => {
     }
 
     console.log('Student Time Generate: Calling AI API for resourceType', resourceType)
-    const aiRes = await fetch(AI_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${LOVABLE_API_KEY}` },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [
-          { role: 'system', content: 'You are an expert academic tutor. Generate well-structured, accurate educational content.' },
-          { role: 'user', content: prompt },
-        ],
-        temperature: 0.7,
-        max_tokens: 4000,
-      }),
-    })
+    let content = await callLovable([
+      { role: 'system', content: SAFE_SYSTEM_PROMPT },
+      { role: 'user', content: prompt },
+    ])
 
-    if (!aiRes.ok) {
-      const err = await aiRes.text()
-      console.error('Student Time Generate: AI API error', err)
-      throw new Error(`AI API error: ${err}`)
+    if (isRefusalText(content)) {
+      console.warn('Student Time Generate: Refusal detected, retrying with stronger safe academic prompt')
+      content = await callLovable([
+        { role: 'system', content: SAFE_SYSTEM_PROMPT },
+        { role: 'system', content: SAFE_RETRY_PROMPT },
+        { role: 'user', content: prompt },
+      ])
     }
 
-    const aiData = await aiRes.json()
-    const content = aiData.choices?.[0]?.message?.content || 'No content generated.'
     console.log('Student Time Generate: Content generated successfully, length:', content.length)
-
     return new Response(JSON.stringify({ result: content }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })

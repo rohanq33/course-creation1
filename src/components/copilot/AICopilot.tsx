@@ -47,7 +47,7 @@ export function AICopilot({ lessonContent, lessonTitle, onClose }: AICopilotProp
     try {
       const payload = {
         message: input.trim(),
-        history,
+        conversationHistory: history,
         courseId: null,
       };
       console.log('AICopilot: sending chat payload', payload);

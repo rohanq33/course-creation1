@@ -54,12 +54,13 @@ export async function streamChat({
 
     if (!resp.ok) {
       let errorMsg = 'AI request failed.';
+      const url = CHAT_URL;
       try {
         const errData = await resp.json();
         errorMsg = errData.message || errData.error || errorMsg;
-        console.error('AI chat failed:', errData);
+        console.error('AI chat failed:', url, resp.status, errData);
       } catch (parseErr) {
-        console.error('AI chat failed:', resp.status, resp.statusText);
+        console.error('AI chat failed:', url, resp.status, resp.statusText);
       }
       onError(errorMsg);
       return;

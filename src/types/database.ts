@@ -24,6 +24,7 @@ export interface Course {
   description: string | null;
   thumbnail_url: string | null;
   status: 'draft' | 'published' | 'archived';
+  published?: boolean;
   created_at: string;
   updated_at: string;
 }

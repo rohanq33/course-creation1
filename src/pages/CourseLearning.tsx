@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { DEMO_USER_ID } from '@/contexts/DemoContext';
 import { Button } from '@/components/ui/button';
+import { getStoredCourseById, getStoredCourseLessons } from '@/lib/courseStorage';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -27,6 +28,9 @@ export default function CourseLearning() {
   const { data: course, isLoading: loadingCourse } = useQuery({
     queryKey: ['course', courseId],
     queryFn: async () => {
+      const localCourse = getStoredCourseById(courseId);
+      if (localCourse) return localCourse;
+
       const { data, error } = await supabase.from('courses').select('*').eq('id', courseId).single();
       if (error) throw error;
       return data;
@@ -37,6 +41,9 @@ export default function CourseLearning() {
   const { data: lessons, isLoading: loadingLessons } = useQuery({
     queryKey: ['lessons', courseId],
     queryFn: async () => {
+      const localLessons = getStoredCourseLessons(courseId);
+      if (localLessons) return localLessons as Lesson[];
+
       const { data, error } = await supabase.from('lessons').select('*').eq('course_id', courseId).order('order_index', { ascending: true });
       if (error) throw error;
       return data as Lesson[];

@@ -3,6 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { DEMO_USER_ID } from '@/contexts/DemoContext';
+import { API_BASE_URL } from '@/lib/api';
+import { getStoredCourseById, getStoredCourseLessons } from '@/lib/courseStorage';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -34,6 +36,9 @@ export default function CourseEditor() {
   const { data: course, isLoading } = useQuery({
     queryKey: ['course', courseId],
     queryFn: async () => {
+      const localCourse = getStoredCourseById(courseId);
+      if (localCourse) return localCourse;
+
       const { data, error } = await supabase
         .from('courses')
         .select('*')
@@ -48,6 +53,9 @@ export default function CourseEditor() {
   const { data: lessons, isLoading: loadingLessons } = useQuery({
     queryKey: ['lessons', courseId],
     queryFn: async () => {
+      const localLessons = getStoredCourseLessons(courseId);
+      if (localLessons) return localLessons as Lesson[];
+
       const { data, error } = await supabase
         .from('lessons')
         .select('*')
@@ -135,12 +143,17 @@ export default function CourseEditor() {
     if (!course?.title) return;
     setIsGeneratingLessons(true);
     try {
-      const response = await supabase.functions.invoke('generate-lessons', {
-        body: { courseId: course.id, topic: course.title, description: course.description },
+      const response = await fetch(`${API_BASE_URL}/api/generate-lessons`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ courseId: course.id, topic: course.title, description: course.description }),
       });
-      if (response.error) throw response.error;
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.message || data?.error || 'Lesson generation failed');
+      }
       queryClient.invalidateQueries({ queryKey: ['lessons', courseId] });
-      toast.success('Lessons generated with AI!');
+      toast.success(data?.message || 'Lessons generated with AI!');
     } catch (error) {
       console.error('AI generation error:', error);
       toast.error('Failed to generate lessons. Please try again.');
@@ -166,8 +179,10 @@ export default function CourseEditor() {
     }, {
       onSuccess: () => {
         // Trigger embedding generation for updated lesson
-        supabase.functions.invoke('generate-embeddings', {
-          body: {
+        fetch(`${API_BASE_URL}/api/generate-embeddings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
             courseId,
             lessonId: editingLesson,
             lessonTitle,
@@ -175,7 +190,7 @@ export default function CourseEditor() {
             lessonSummary,
             courseTitle: course?.title,
             courseDescription: course?.description,
-          },
+          }),
         }).catch(err => console.warn('Embedding generation failed:', err));
       },
     });

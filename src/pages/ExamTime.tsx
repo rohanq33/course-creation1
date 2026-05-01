@@ -141,7 +141,7 @@ export default function ExamTime() {
     setActiveSection(section);
 
     const syllabusContent = syllabusText.slice(0, 8000);
-    const payload = { syllabusContent, section };
+    const payload = { syllabusContent, section, subject: fileName };
 
     try {
       console.log('Exam Time: selected section', section);
@@ -283,7 +283,7 @@ export default function ExamTime() {
                     </Badge>
                     <span className="text-xs text-muted-foreground">Generated from: {fileName}</span>
                   </div>
-                  <div className="prose prose-sm max-w-none dark:prose-invert break-words">
+                  <div className="prose prose-lg max-w-none dark:prose-invert break-words leading-8">
                     <ReactMarkdown
                       components={{
                         a: ({ node, ...props }) => (

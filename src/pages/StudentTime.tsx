@@ -182,7 +182,7 @@ export default function StudentTime() {
                       </p>
                     </div>
                   ) : currentContent ? (
-                    <div className="prose prose-sm max-w-none dark:prose-invert break-words">
+                    <div className="prose prose-lg max-w-none dark:prose-invert break-words leading-8">
                       <ReactMarkdown
                         components={{
                           a: ({ node, ...props }) => (

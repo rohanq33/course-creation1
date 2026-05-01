@@ -17,6 +17,7 @@ import {
   streamChatSearch, saveMessage, loadConversations, loadConversation, deleteConversation,
 } from "@/lib/chatService";
 import { API_BASE_URL } from "@/lib/api";
+import { addStoredCourse, parseCourseResponse } from '@/lib/courseStorage';
 import ReactMarkdown from "react-markdown";
 
 function generateId() {
@@ -191,16 +192,20 @@ export default function AISearch() {
       if (!response.ok) {
         throw new Error(data?.message || data?.error || "Course generation failed.");
       }
-      const output = data.course ? JSON.stringify(data.course, null, 2) : data.output || data.answer || data.response || "Course outline generated.";
+
+      const course = parseCourseResponse(data, topic, '');
+      addStoredCourse(course);
+      const output = JSON.stringify(course, null, 2);
       const assistantMessage: ChatMessage = {
         id: crypto.randomUUID(),
         conversation_id: conversationId,
         role: "assistant",
-        content: `Course generated:\n\n${output}`,
+        content: `Course generated and saved locally. You can review it on the Courses page.\n\n${output}`,
         created_at: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, assistantMessage]);
-      toast({ title: "Course generated", description: "Course outline added to chat." });
+      toast({ title: "Course generated", description: "Course saved locally and ready to review." });
+      navigate('/courses');
     } catch (e: any) {
       console.error("Course generation failed:", e);
       toast({ title: "Course generation failed", description: e?.message || "Please try again.", variant: "destructive" });

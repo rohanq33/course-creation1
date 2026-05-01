@@ -16,15 +16,24 @@ export interface SearchResult {
 }
 
 export async function aiSearch(query: string, courseId?: string): Promise<SearchResult> {
-  const response = await fetch(`${API_BASE_URL}/api/ai-search`, {
+  const url = `${API_BASE_URL}/api/ai-search`;
+  const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ query, courseId: courseId || null }),
   });
 
-  const data = await response.json();
+  const text = await response.text();
+  let data: any = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { response: text };
+  }
+
   if (!response.ok) {
-    throw new Error(data?.message || data?.error || "Search failed");
+    console.error("AI search failed", url, response.status, data);
+    throw new Error(data?.message || data?.error || text || "Search failed");
   }
 
   return data as SearchResult;

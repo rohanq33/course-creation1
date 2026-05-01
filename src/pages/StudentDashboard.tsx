@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
+import { API_BASE_URL } from '@/lib/api';
 import { supabase } from '@/integrations/supabase/client';
 import { DEMO_USER_ID } from '@/contexts/DemoContext';
 import { Button } from '@/components/ui/button';
@@ -51,32 +53,39 @@ export default function StudentDashboard() {
     },
   });
 
-  const { data: availableCourses, isLoading: loadingAvailable } = useQuery({
-    queryKey: ['available-courses', userId, enrolledCourses],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('courses')
-        .select(`*, lessons(count)`)
-        .eq('status', 'published')
-        .order('created_at', { ascending: false });
-      if (error) throw error;
+  const [availableCourses, setAvailableCourses] = useState<any[]>([]);
+  const [loadingAvailable, setLoadingAvailable] = useState(true);
 
-      const instructorIds = data?.map(c => c.instructor_id).filter(Boolean) || [];
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('user_id, full_name')
-        .in('user_id', instructorIds);
+  useEffect(() => {
+    const loadAvailableCourses = async () => {
+      setLoadingAvailable(true);
 
-      const enrolledIds = enrolledCourses?.map(e => e.course_id) || [];
-      return data
-        .filter(c => !enrolledIds.includes(c.id))
-        .map(c => ({
-          ...c,
-          instructor_name: profiles?.find(p => p.user_id === c.instructor_id)?.full_name || 'Instructor',
-        }));
-    },
-    enabled: enrolledCourses !== undefined,
-  });
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/courses`);
+        const data = await response.json();
+        console.log('Fetched courses:', data);
+
+        if (!response.ok) {
+          throw new Error(data?.error || data?.message || `${response.status} ${response.statusText}`);
+        }
+
+        const enrolledIds = enrolledCourses?.map((e: any) => e.course_id) || [];
+        const filtered = Array.isArray(data)
+          ? data.filter((course: any) => !enrolledIds.includes(course.id))
+          : [];
+
+        console.log('Student courses:', filtered);
+        setAvailableCourses(filtered);
+      } catch (error) {
+        console.error('Failed to load available courses:', error);
+        setAvailableCourses([]);
+      } finally {
+        setLoadingAvailable(false);
+      }
+    };
+
+    loadAvailableCourses();
+  }, [enrolledCourses]);
 
   const getProgress = (enrollment: any) => {
     const totalLessons = enrollment.course?.lessons?.length || 0;
@@ -234,7 +243,7 @@ export default function StudentDashboard() {
                   <div className="w-16 h-16 rounded-full bg-muted mx-auto mb-4 flex items-center justify-center">
                     <BookOpen className="w-8 h-8 text-muted-foreground" />
                   </div>
-                  <h3 className="text-lg font-semibold mb-2">No new courses available</h3>
+                  <h3 className="text-lg font-semibold mb-2">No courses available</h3>
                   <p className="text-muted-foreground">Check back later for new courses!</p>
                 </CardContent>
               </Card>
